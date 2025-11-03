@@ -9,6 +9,7 @@ interface LLMContextType {
   responses: LLMResponse[];
   addResponse: (message: string) => void;
   removeResponse: (id: string) => void;
+  clearResponses: () => void;
 }
 
 const LLMContext = createContext<LLMContextType | undefined>(undefined);
@@ -25,8 +26,12 @@ export function LLMProvider({ children }: { children: ReactNode }) {
     setResponses(prev => prev.filter(r => r.id !== id));
   };
 
+  const clearResponses = () => {
+    setResponses([]);
+  };
+
   return (
-    <LLMContext.Provider value={{ responses, addResponse, removeResponse }}>
+    <LLMContext.Provider value={{ responses, addResponse, removeResponse, clearResponses }}>
       {children}
     </LLMContext.Provider>
   );

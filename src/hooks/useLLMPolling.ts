@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useLLM } from '@/contexts/LLMContext';
 
 export function useLLMPolling() {
-  const { addResponse } = useLLM();
+  const { addResponse, responses, clearResponses } = useLLM();
   const pollingInterval = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
@@ -12,17 +12,23 @@ export function useLLMPolling() {
         if (response.ok) {
           const data = await response.json();
 
-          if (data.reply && data.reply !== '') {
+          if (data.reply && data.reply !== '' && !responses.some(r => r.message === data.reply)) {
             addResponse(data.reply);
           }
+        } else if (response.status === 503 || response.status >= 500) {
+          // Server error - likely stopped, clear old responses
+          clearResponses();
+          console.warn('Server appears to be stopped, clearing old responses');
         }
       } catch (error) {
-        // Silently handle polling errors
+        // Network error - server might be down
+        clearResponses();
+        console.warn('Server unavailable, clearing old responses');
       }
     };
 
-    // Poll every 2 seconds
-    pollingInterval.current = setInterval(pollForResponses, 2000);
+    // Poll every 3 seconds (more frequent for live conversation simulation)
+    pollingInterval.current = setInterval(pollForResponses, 3000);
 
     // Initial poll
     pollForResponses();
@@ -32,7 +38,7 @@ export function useLLMPolling() {
         clearInterval(pollingInterval.current);
       }
     };
-  }, [addResponse]);
+  }, [addResponse, responses]);
 
   return null;
 }

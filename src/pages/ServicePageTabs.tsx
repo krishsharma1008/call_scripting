@@ -4,7 +4,6 @@ import { CustomerSidebar } from "@/components/CustomerSidebar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
-import { CallControls } from "@/components/CallControls";
 import ServiceInformation from "@/components/tabs/ServiceInformation";
 import QuoteBuilderTab from "@/components/tabs/QuoteBuilderTab";
 import FeesTab from "@/components/tabs/FeesTab";
@@ -45,7 +44,7 @@ const ServicePageTabs = () => {
                 <div className="w-12 h-12 bg-primary/10 rounded flex items-center justify-center">
                   <span className="text-2xl">🔧</span>
                 </div>
-                <div className="flex-1">
+                <div>
                   <h1 className="text-xl font-semibold">Dryer Vent Wizard of Central Dallas/Ft. Worth</h1>
                   <div className="flex gap-4 text-sm text-muted-foreground mt-1">
                     <span className="flex items-center gap-1">
@@ -56,7 +55,6 @@ const ServicePageTabs = () => {
                     </span>
                   </div>
                 </div>
-                <CallControls />
               </div>
               
               <div className="bg-yellow-50 border border-yellow-200 rounded p-3 text-sm">

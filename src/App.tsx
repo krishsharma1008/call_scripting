@@ -4,22 +4,44 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { CustomerProvider } from "./contexts/CustomerContext";
-import { LLMProvider } from "./contexts/LLMContext";
+import { LLMProvider, useLLM } from "./contexts/LLMContext";
 import Index from "./pages/Index";
 import IntroScript from "./pages/IntroScript";
 import ServicePageTabs from "./pages/ServicePageTabs";
 import NotFound from "./pages/NotFound";
-import { CallProvider } from "./contexts/CallContext";
-import { NudgesTray } from "./components/NudgesTray";
+import { LLMResponseDialogue } from './components/LLMResponseDialogue';
+import { useLLMPolling } from "./hooks/useLLMPolling";
+import { useRealTimeNudges } from './hooks/useRealTimeNudges';
 
 const queryClient = new QueryClient();
+
+// Component to manage LLM responses
+const LLMResponseManager = () => {
+  const { responses, removeResponse, clearResponses } = useLLM();
+
+  if (responses.length === 0) return null;
+
+  return (
+    <LLMResponseDialogue
+      responses={responses}
+      onDismiss={removeResponse}
+      onClearAll={clearResponses}
+    />
+  );
+};
+
+// Component that sets up real-time nudges
+const RealTimeNudgeProvider = ({ children }: { children: React.ReactNode }) => {
+  useRealTimeNudges(); // This will receive real-time nudges from the server
+  return <>{children}</>;
+};
 
 const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <CustomerProvider>
         <LLMProvider>
-          <CallProvider>
+          <RealTimeNudgeProvider>
             <TooltipProvider>
               <Toaster />
               <Sonner />
@@ -31,12 +53,11 @@ const App = () => {
                     <Route path="/service" element={<ServicePageTabs />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>
-                  {/* Global nudges overlay (bottom-right), visible on any page */}
-                  <NudgesTray />
+                  <LLMResponseManager />
                 </div>
               </BrowserRouter>
             </TooltipProvider>
-          </CallProvider>
+          </RealTimeNudgeProvider>
         </LLMProvider>
       </CustomerProvider>
     </QueryClientProvider>
