@@ -5,6 +5,8 @@ interface CustomerData {
   lastName: string;
   zipcode: string;
   phone: string;
+  leadScore?: number;
+  leadScoreHistory?: Array<{ score: number; timestamp: string }>;
 }
 
 interface CustomerContextType {

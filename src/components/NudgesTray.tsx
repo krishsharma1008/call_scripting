@@ -1,21 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useCall } from '@/contexts/CallContext';
 import { NudgeCard } from './Nudge';
 
-type TimedNudge = { key: string; title: string; nudge: any; addedAt: number; expiresAt: number; dismissAt: number };
+type TimedNudge = { key: string; title: string; nudge: any; addedAt: number };
 
 export function NudgesTray() {
+  const location = useLocation();
   const { nudges } = useCall();
   const [cards, setCards] = useState<TimedNudge[]>([]);
   const pollRef = useRef<number | null>(null);
-  const sweepRef = useRef<number | null>(null);
+
+  // Disable nudges on the intro page
+  const isIntroPage = location.pathname === '/intro';
 
   // Inject nudges from CallContext (if any)
   useEffect(() => {
-    if (!nudges?.length) return;
+    if (isIntroPage || !nudges?.length) return;
     appendNudges(nudges);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nudges]);
+  }, [nudges, isIntroPage]);
 
   function appendNudges(incoming: any[]) {
     if (!incoming?.length) return;
@@ -32,17 +36,17 @@ export function NudgesTray() {
           title,
           nudge: n,
           addedAt: now,
-          expiresAt: now + 15000, // 15s life for better readability
-          dismissAt: now + 14000, // start fading 1s before removal
         });
       }
-      // Keep reasonable backlog (increased to 30 for better persistence)
-      return next.slice(-30);
+      // Keep all cards (persistent until manually dismissed)
+      return next;
     });
   }
 
-  // Poll backend for latest nudges frequently
+  // Poll backend for latest nudges frequently (disabled on intro page)
   useEffect(() => {
+    if (isIntroPage) return;
+    
     const tick = async () => {
       try {
         const r = await fetch('http://localhost:3001/api/nudges/latest');
@@ -67,31 +71,23 @@ export function NudgesTray() {
     };
     tick();
     return () => { if (pollRef.current) window.clearTimeout(pollRef.current); };
-  }, []);
+  }, [isIntroPage]);
 
-  // Sweep expired / fade
-  useEffect(() => {
-    const sweep = () => {
-      const now = Date.now();
-      setCards((prev) => prev.filter((c) => c.expiresAt > now));
-      sweepRef.current = window.setTimeout(sweep, 400) as any;
-    };
-    sweep();
-    return () => { if (sweepRef.current) window.clearTimeout(sweepRef.current); };
-  }, []);
-
+  // Show all cards (persistent, no expiration)
   const visible = useMemo(() => {
-    // Show newest five for better visibility
-    return [...cards].slice(-5);
+    return [...cards];
   }, [cards]);
 
+  // Don't render nudges on the intro page
+  if (isIntroPage) {
+    return null;
+  }
+
   return (
-    <div className="fixed bottom-4 right-4 z-[60] flex flex-col gap-2">
+    <div className="fixed bottom-4 right-4 z-[60] flex flex-col gap-2 max-h-[80vh] overflow-y-auto">
       {visible.map((c) => {
-        const now = Date.now();
-        const fading = now >= c.dismissAt;
         return (
-          <div key={c.key} className={fading ? 'transition-opacity duration-500 opacity-0' : 'transition-opacity duration-300 opacity-100'}>
+          <div key={c.key} className="opacity-100">
             <NudgeCard nudge={c.nudge} onClose={() => setCards((prev) => prev.filter((x) => x.key !== c.key))} />
           </div>
         );
