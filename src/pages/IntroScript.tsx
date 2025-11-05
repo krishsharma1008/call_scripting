@@ -169,6 +169,11 @@ const IntroScript = () => {
           <Button 
             variant="default" 
             size="lg"
+            className="    border-2 border-primary
+    text-primary
+    bg-transparent
+    hover:bg-primary/10
+    transition-all duration-200"
             onClick={handleNext}
             disabled={!firstName || !lastName || !zipcode}
           >

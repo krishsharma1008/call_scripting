@@ -19,6 +19,11 @@ export function CallControls() {
       <Button
         variant="default"
         size="sm"
+        className='    border-2 border-primary
+    text-primary
+    bg-transparent
+    hover:bg-primary/10
+    transition-all duration-200'
         onClick={handleStartCall}
         disabled={status === 'connecting' || status === 'active'}
       >

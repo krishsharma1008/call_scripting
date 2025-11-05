@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Header } from '@/components/Header';
@@ -82,7 +83,7 @@ export default function CallDashboard() {
         <div className="flex items-center justify-center h-[calc(100vh-3.5rem)]">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-            <p className="text-muted-foreground">Loading call dashboard...</p>
+            <p className="text-muted-foreground text-brand-orange">Loading call dashboard...</p>
           </div>
         </div>
       </div>
@@ -95,8 +96,14 @@ export default function CallDashboard() {
         <Header />
         <div className="flex items-center justify-center h-[calc(100vh-3.5rem)]">
           <div className="text-center">
-            <p className="text-lg font-semibold mb-2">Call session not found</p>
-            <Button onClick={() => navigate('/')}>Go to Home</Button>
+            <p className="text-lg font-semibold mb-2 text-brand-orange">Call session not found</p>
+            <Button onClick={() => navigate('/')} 
+            className='    border-2 border-primary
+    text-primary
+    bg-transparent
+    hover:bg-primary/10
+    transition-all duration-200'  
+            >Go to Home</Button>
           </div>
         </div>
       </div>
