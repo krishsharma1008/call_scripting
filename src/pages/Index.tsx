@@ -7,9 +7,10 @@ const Index = () => {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">
       <div className="text-center space-y-6 max-w-2xl px-6">
-        <h1 className="mb-4 text-4xl font-bold text-brand-orange bg-clip-text text-transparent">
+        <h1 className="mb-4 text-4xl font-bold text-brand-orange bg-clip-text">
           Customer Service Portal
         </h1>
+        {/* <h1>hi</h1> */}
         <p className="text-xl text-muted-foreground mb-8">
           Navigate through the service workflow
         </p>

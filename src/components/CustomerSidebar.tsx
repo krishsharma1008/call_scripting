@@ -432,15 +432,15 @@ export const CustomerSidebar = () => {
           </div>
 
           {!customerData.phone ? (
-            <p className="text-sm text-muted-foreground text-center py-4 text-brand-orange">
+            <p className="text-sm text-center py-4 text-brand-orange">
               Select a customer to view appointments
             </p>
           ) : loadingAppointments ? (
-            <p className="text-sm text-muted-foreground text-center py-4 text-brand-orange">
+            <p className="text-sm text-center py-4 text-brand-orange">
               Loading appointments...
             </p>
           ) : appointments.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4 text-brand-orange">
+            <p className="text-sm text-brand-orange text-center py-4">
               No {activeFilter} appointments found
             </p>
           ) : (
@@ -512,7 +512,7 @@ export const CustomerSidebar = () => {
           </h3>
           <div className="border rounded-lg bg-muted/30 h-[300px] overflow-y-auto p-4 space-y-3">
             {nudges.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8 text-brand-orange">
+              <p className="text-sm text-center py-8 text-brand-orange">
                 No nudges available yet
               </p>
             ) : (
@@ -596,7 +596,7 @@ export const CustomerSidebar = () => {
             className="border rounded-lg bg-muted/30 h-[400px] overflow-y-auto p-4 space-y-3"
           >
             {transcript.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8 text-brand-orange">
+              <p className="text-sm text-center py-8 text-brand-orange">
                 No conversation transcript yet
               </p>
             ) : (
