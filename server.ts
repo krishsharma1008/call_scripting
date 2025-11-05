@@ -405,6 +405,10 @@ type Nudge = {
   priority: 1 | 2 | 3;
 };
 
+// Lead Scoring Constants
+const LEAD_SCORE_MIN = 1.0;
+const LEAD_SCORE_MAX = 9.4; // Hard limit - score never exceeds 9.4
+
 // Lead Scoring Types
 type CustomerHistory = {
   totalBookings: number;
@@ -643,8 +647,8 @@ function calculateInitialLeadScore(history: CustomerHistory): { score: number; f
   baseScore += engagementBonus;
   factors.engagement = engagementBonus;
   
-  // Clamp between 1.0 and 10.0
-  const finalScore = Math.max(1.0, Math.min(10.0, baseScore));
+  // Clamp between LEAD_SCORE_MIN and LEAD_SCORE_MAX (hard limit at 9.4)
+  const finalScore = Math.max(LEAD_SCORE_MIN, Math.min(LEAD_SCORE_MAX, baseScore));
   
   return {
     score: Math.round(finalScore * 10) / 10, // Round to 1 decimal
@@ -1029,7 +1033,8 @@ app.post('/api/transcript/append', async (req, res) => {
         try {
           const analysis = await analyzeConversationForScore(recentTurns, currentLeadScore.score);
           if (Math.abs(analysis.delta) > 0.05) { // Only update if meaningful change
-            const newScore = Math.max(1.0, Math.min(10.0, currentLeadScore.score + analysis.delta));
+            // Apply hard limit of 9.4 - score never exceeds this value
+            const newScore = Math.max(LEAD_SCORE_MIN, Math.min(LEAD_SCORE_MAX, currentLeadScore.score + analysis.delta));
             currentLeadScore.adjustments.push({
               delta: analysis.delta,
               reason: analysis.reason,
@@ -1314,11 +1319,12 @@ app.post('/api/call/start', async (req, res) => {
     leadScoreHistory = [];
     
     // Calculate initial lead score (only if phone is not 'unknown')
-    let initialScore = 5.0; // Default score
+    // Default score is 5.0, but ensure it respects the max limit
+    let initialScore = Math.min(5.0, LEAD_SCORE_MAX); // Default score
     if (phone !== 'unknown') {
       const history = getCustomerHistory(phone);
       const scoreResult = calculateInitialLeadScore(history);
-      initialScore = scoreResult.score;
+      initialScore = scoreResult.score; // Already capped at LEAD_SCORE_MAX
     }
     
     // Store initial score in history
