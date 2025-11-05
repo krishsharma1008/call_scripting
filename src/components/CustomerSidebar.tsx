@@ -316,7 +316,7 @@ export const CustomerSidebar = () => {
               </div>
             </>
           ) : (
-            <p className="text-sm text-brand-orange text-muted-foreground">
+            <p className="text-sm text-brand-orange">
               No customer data available
             </p>
           )}
