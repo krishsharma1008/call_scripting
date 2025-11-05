@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -898,6 +899,11 @@ SIGNALS TO DETECT:
 - Timeline: "this week", "soon", "asap" → positive; "maybe later", "next year", "not sure" → negative
 - Negative signals: "too expensive", "not interested", "maybe later", "I'll pass" → negative
 
+SCORING GUIDELINES:
+- No customer should receive a perfect 10 or 0 score
+- Maximum achievable score is 9.5
+- Minimum possible score is 1.5
+
 Return JSON: { "delta": number, "reason": string }
 - delta: -1.0 to +1.0 (how much to adjust score)
 - reason: brief explanation (max 50 chars)
@@ -1170,45 +1176,79 @@ Use ALL available data (lead score, customer history, appointments, behavioral i
       max_tokens: 400, // More room for detailed, quality responses
     });
     const text = completion.choices[0]?.message?.content?.trim() || '';
+
+    // Robust JSON parsing: strip markdown fences and extract first JSON object/array
+    function parseJsonSafely(s: string) {
+      if (!s) return null;
+      // Remove markdown fences and common wrappers
+      let cleaned = s.replace(/```(?:json)?\r?\n?/gi, '').replace(/```/g, '').trim();
+
+  // Try direct parse first
+  try { return JSON.parse(cleaned); } catch (e) { void e; }
+
+      // Try to locate first {...} or [...] block
+      const match = cleaned.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+      if (match) {
+        const candidate = match[0];
+        try { return JSON.parse(candidate); } catch (err) {
+          console.error('[Nudges] JSON candidate parse failed:', err);
+          console.error('[Nudges] Candidate preview:', candidate.substring(0, 800));
+          return null;
+        }
+      }
+
+      // Last-resort: strip surrounding quotes/backticks and try again
+      cleaned = cleaned.replace(/^['"`\s]+|['"`\s]+$/g, '');
+      try { return JSON.parse(cleaned); } catch (err) {
+        console.error('[Nudges] Final parse attempt failed:', err);
+        console.error('[Nudges] Raw response preview:', s.substring(0, 1200));
+        return null;
+      }
+    }
+
     try {
-      const parsed = JSON.parse(text);
-      if (Array.isArray(parsed?.nudges)) {
+      const parsed = parseJsonSafely(text) as any;
+      if (parsed && Array.isArray(parsed?.nudges)) {
         const incoming: Nudge[] = parsed.nudges.slice(0, 2); // Max 2 nudges for higher quality
         const now = Date.now();
-        
+
         // Clean up old entries from recentlyShown (older than 60 seconds)
         for (const [title, timestamp] of recentlyShownNudges.entries()) {
           if (now - timestamp > 60000) {
             recentlyShownNudges.delete(title);
           }
         }
-        
+
         // De-dup by title, but allow re-showing after 60 seconds
         const seen = new Set(pendingNudges.map(n => n.title));
         const wrapped: ServerNudge[] = incoming
           .filter(n => {
+            if (!n || !n.title) return false;
             // Skip if already in pending queue
             if (seen.has(n.title)) return false;
-            
+
             // Skip if recently shown (within last 60 seconds)
             const lastShown = recentlyShownNudges.get(n.title);
             if (lastShown && (now - lastShown < 60000)) return false;
-            
+
             return true;
           })
           .map(n => ({ ...n, sid: `${Date.now()}-${++nudgeCounter}`, createdAt: now }));
-        
+
         pendingNudges.push(...wrapped);
-        
+
         if (wrapped.length > 0) {
           console.log(`[Nudges] Added ${wrapped.length} new nudges to pending queue | Total pending: ${pendingNudges.length}`);
           console.log(`[Nudges] New titles: ${wrapped.map(n => n.title).join(', ')}`);
         } else if (incoming.length > 0) {
           console.log(`[Nudges] Generated ${incoming.length} nudges but all were filtered (duplicates or recently shown)`);
         }
+      } else {
+        console.error('[Nudges] Parse error: unable to extract nudges JSON from model response');
+        console.error('[Nudges] Model response preview:', text.substring(0, 1200));
       }
     } catch (parseErr) {
-      console.error('[Nudges] Parse error:', parseErr);
+      console.error('[Nudges] Unexpected parse error:', parseErr);
     }
   } catch (error) {
     console.error('[Nudges] Generation error:', error);

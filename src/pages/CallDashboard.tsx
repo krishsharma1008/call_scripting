@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { Download } from "lucide-react";
 
 type CallSession = {
   callId: string;
@@ -36,6 +37,32 @@ export default function CallDashboard() {
   const navigate = useNavigate();
   const [session, setSession] = useState<CallSession | null>(null);
   const [loading, setLoading] = useState(true);
+
+
+ const handleDownload = (format: "txt" | "json" = "txt") => {
+    let content = "";
+
+    if (format === "json") {
+      content = JSON.stringify(session.transcript, null, 2);
+    } else {
+      content = session.transcript
+        .map(
+          (turn: any, index: number) =>
+            `Turn ${index + 1} (${turn.role === "user" ? "Customer" : "CSR"} - ${turn.sentiment || "neutral"}):\n${turn.content}\n`
+        )
+        .join("\n");
+    }
+
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `transcript.${format}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   useEffect(() => {
     const fetchSession = async () => {
@@ -148,14 +175,24 @@ export default function CallDashboard() {
     { name: 'Negative', value: session.overallSentiment.negative, color: COLORS.negative },
   ];
 
-  // Nudge types distribution
+  // Nudge types distribution - initialize all types with 0
   const nudgeTypes = session.nudgesShown.reduce((acc, nudge) => {
-    const type = nudge.type === 'upsell' ? 'Upsell' : nudge.type === 'cross_sell' ? 'Cross-sell' : 'Tip';
+    const type = nudge.type === 'upsell' ? 'Upsell' : 
+                 nudge.type === 'cross_sell' ? 'Cross-sell' : 'Tip';
     acc[type] = (acc[type] || 0) + 1;
     return acc;
-  }, {} as Record<string, number>);
+  }, {
+    'Upsell': 0,
+    'Cross-sell': 0,
+    'Tip': 0
+  } as Record<string, number>);
 
-  const nudgeData = Object.entries(nudgeTypes).map(([name, value]) => ({ name, value }));
+  // Always show all categories in consistent order
+  const nudgeData = [
+    { name: 'Upsell', value: nudgeTypes['Upsell'] },
+    { name: 'Cross-sell', value: nudgeTypes['Cross-sell'] },
+    { name: 'Tip', value: nudgeTypes['Tip'] }
+  ];
 
   const scoreChange = session.finalLeadScore - session.initialLeadScore;
   const scoreColor = session.finalLeadScore >= 7 ? COLORS.scoreHigh : session.finalLeadScore >= 4 ? COLORS.scoreMedium : COLORS.scoreLow;
@@ -435,7 +472,7 @@ export default function CallDashboard() {
         </Card>
 
         {/* Transcript with Sentiment */}
-        <Card>
+        {/* <Card>
           <CardHeader>
             <CardTitle>Full Transcript</CardTitle>
             <CardDescription>Complete conversation with sentiment highlights</CardDescription>
@@ -483,7 +520,71 @@ export default function CallDashboard() {
               })}
             </div>
           </CardContent>
-        </Card>
+        </Card> */}
+
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle>Full Transcript</CardTitle>
+          <CardDescription>Complete conversation with sentiment highlights</CardDescription>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => handleDownload("txt")}>
+            <Download className="w-4 h-4 mr-2" /> Download TXT
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => handleDownload("json")}>
+            <Download className="w-4 h-4 mr-2" /> Download JSON
+          </Button>
+        </div>
+      </CardHeader>
+
+      <CardContent>
+        <div className="space-y-4 max-h-[600px] overflow-y-auto">
+          {session.transcript.map((turn: any, index: number) => {
+            const sentimentColor =
+              turn.sentiment === "positive"
+                ? COLORS.positive
+                : turn.sentiment === "negative"
+                ? COLORS.negative
+                : COLORS.neutral;
+
+            return (
+              <div
+                key={index}
+                className={`p-4 rounded-lg border-l-4 ${
+                  turn.role === "user" ? "bg-muted/30" : "bg-background"
+                }`}
+                style={{ borderLeftColor: sentimentColor }}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">
+                      {turn.role === "user" ? "Customer" : "CSR"}
+                    </Badge>
+                    {turn.sentiment && (
+                      <Badge
+                        variant="outline"
+                        style={{
+                          borderColor: sentimentColor,
+                          color: sentimentColor,
+                        }}
+                      >
+                        {turn.sentiment.toUpperCase()}
+                      </Badge>
+                    )}
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    Turn {index + 1}
+                  </span>
+                </div>
+                <p className="text-sm">{turn.content}</p>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+
       </div>
     </div>
   );
