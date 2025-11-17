@@ -8,6 +8,24 @@ import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { useCustomer } from "@/contexts/CustomerContext";
 
+// Generate unique phone number from customer data (deterministic)
+function generatePhoneFromCustomer(firstName: string, lastName: string, zipcode: string): string {
+  // Create hash from name + zipcode
+  const seed = `${firstName}${lastName}${zipcode}`.toLowerCase();
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = ((hash << 5) - hash) + seed.charCodeAt(i);
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  
+  // Generate phone number components
+  const area = String(Math.abs(hash % 900) + 100).padStart(3, '0');
+  const exchange = String(Math.abs(hash * 17 % 900) + 100).padStart(3, '0');
+  const number = String(Math.abs(hash * 31 % 10000)).padStart(4, '0');
+  
+  return `(${area}) ${exchange}-${number}`;
+}
+
 const IntroScript = () => {
   const navigate = useNavigate();
   const { setCustomerData } = useCustomer();
@@ -16,11 +34,13 @@ const IntroScript = () => {
   const [zipcode, setZipcode] = useState("");
   
   const handleNext = () => {
+    // Generate unique phone number from customer data
+    const generatedPhone = generatePhoneFromCustomer(firstName, lastName, zipcode);
     setCustomerData({
       firstName,
       lastName,
       zipcode,
-      phone: "(232) 323-2323"
+      phone: generatedPhone
     });
     navigate("/service");
   };
@@ -149,6 +169,11 @@ const IntroScript = () => {
           <Button 
             variant="default" 
             size="lg"
+            className="    border-2 border-primary
+    text-primary
+    bg-transparent
+    hover:bg-primary/10
+    transition-all duration-200"
             onClick={handleNext}
             disabled={!firstName || !lastName || !zipcode}
           >

@@ -9,6 +9,7 @@ import Index from "./pages/Index";
 import IntroScript from "./pages/IntroScript";
 import ServicePageTabs from "./pages/ServicePageTabs";
 import NotFound from "./pages/NotFound";
+import CallDashboard from "./pages/CallDashboard";
 import { CallProvider } from "./contexts/CallContext";
 import { NudgesTray } from "./components/NudgesTray";
 
@@ -16,30 +17,33 @@ const queryClient = new QueryClient();
 
 const App = () => {
   return (
-    <QueryClientProvider client={queryClient}>
-      <CustomerProvider>
-        <LLMProvider>
-          <CallProvider>
-            <TooltipProvider>
-              <Toaster />
-              <Sonner />
-              <BrowserRouter>
+    <BrowserRouter>
+      <QueryClientProvider client={queryClient}>
+        <CustomerProvider>
+          <LLMProvider>
+            <CallProvider>
+              <TooltipProvider>
+                <Toaster />
+                <Sonner />
                 <div className="relative min-h-screen">
                   <Routes>
                     <Route path="/" element={<Index />} />
                     <Route path="/intro" element={<IntroScript />} />
                     <Route path="/service" element={<ServicePageTabs />} />
+                    <Route path="/dashboard" element={<CallDashboard />} />
+                    <Route path="/dashboard/:callId" element={<CallDashboard />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                   {/* Global nudges overlay (bottom-right), visible on any page */}
-                  <NudgesTray />
+                  {/* Disabled - nudges now shown in CustomerSidebar */}
+                  {/* <NudgesTray /> */}
                 </div>
-              </BrowserRouter>
-            </TooltipProvider>
-          </CallProvider>
-        </LLMProvider>
-      </CustomerProvider>
-    </QueryClientProvider>
+              </TooltipProvider>
+            </CallProvider>
+          </LLMProvider>
+        </CustomerProvider>
+      </QueryClientProvider>
+    </BrowserRouter>
   );
 };
 
