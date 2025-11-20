@@ -118,8 +118,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setStatus('connecting');
     try {
       // Always start call session (even without customerPhone for testing)
+      let callId: string | null = null;
       try {
-        await fetch('http://localhost:3001/api/call/start', {
+        const sessionResp = await fetch('http://localhost:3001/api/call/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
@@ -127,8 +128,21 @@ export function CallProvider({ children }: { children: ReactNode }) {
             customerData: customerData || { firstName: '', lastName: '', zipcode: '', phone: customerPhone || 'unknown' }
           })
         });
+        if (sessionResp.ok) {
+          const sessionData = await sessionResp.json();
+          callId = sessionData.callId;
+        }
       } catch (err) {
         console.error('[Call] Failed to start session:', err);
+      }
+      
+      // Navigate to dashboard immediately when call starts
+      if (callId && navigateRef.current) {
+        setTimeout(() => {
+          if (navigateRef.current) {
+            navigateRef.current('/dashboard');
+          }
+        }, 1000);
       }
 
       const tokenResp = await fetch('http://localhost:3001/api/realtime/token', { method: 'POST' });

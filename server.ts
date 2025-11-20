@@ -450,6 +450,30 @@ type Appointment = {
   notes?: string;
 };
 
+// Conversation Metrics Types
+type ConversationMetrics = {
+  talkTimeRatio: {
+    csrWordCount: number;
+    customerWordCount: number;
+    csrPercentage: number;
+    customerPercentage: number;
+  };
+  responseQuality: {
+    questionsAnswered: number;
+    acknowledgmentCount: number;
+    empathyScore: number; // 0-100
+    overallScore: number; // 0-100
+  };
+  keyTopics: Array<{ topic: string; frequency: number; category: string }>;
+  conversionIndicators: {
+    appointmentStatus: 'booked' | 'discussed' | 'not_mentioned';
+    pricingDiscussed: boolean;
+    pricingAmounts: string[];
+    objectionsRaised: Array<{ objection: string; resolved: boolean }>;
+    commitmentLevel: 'high' | 'medium' | 'low';
+  };
+};
+
 // Call Session Types
 type CallSession = {
   callId: string;
@@ -464,6 +488,9 @@ type CallSession = {
   initialLeadScore: number;
   customerData: { firstName: string; lastName: string; zipcode: string; phone: string };
   overallSentiment: { positive: number; neutral: number; negative: number; averageScore: number };
+  servicesDiscussed: string[];
+  transcriptSummary: string;
+  conversationMetrics: ConversationMetrics;
 };
 
 // Generate small nudges from recent transcript (standalone endpoint, matches quality of auto-generation)
@@ -1303,6 +1330,155 @@ let leadScoreHistory: Array<{ score: number; timestamp: string; reason?: string 
 let nudgeGenerationInterval: NodeJS.Timeout | null = null;
 let lastNudgeGenerationTime = 0;
 
+// Comprehensive Conversation Analysis Function
+async function analyzeConversation(transcript: Array<{ role: string; content: string }>): Promise<{
+  servicesDiscussed: string[];
+  transcriptSummary: string;
+  conversationMetrics: ConversationMetrics;
+}> {
+  try {
+    const conversationText = transcript.map(t => `${t.role}: ${t.content}`).join('\n');
+    
+    // Single AI call for all analysis to save time and cost
+    const systemPrompt = `You are an expert conversation analyst for home service calls. Analyze the following customer service conversation and provide comprehensive insights.
+
+OUTPUT FORMAT: Return ONLY valid JSON with this exact structure:
+{
+  "servicesDiscussed": ["service1", "service2"],
+  "transcriptSummary": "2-3 sentence summary",
+  "talkTimeAnalysis": {
+    "csrWordCount": number,
+    "customerWordCount": number
+  },
+  "responseQuality": {
+    "questionsAnswered": number,
+    "acknowledgmentCount": number,
+    "empathyScore": number (0-100)
+  },
+  "keyTopics": [{"topic": "string", "frequency": number, "category": "services|pricing|scheduling|concerns"}],
+  "conversionIndicators": {
+    "appointmentStatus": "booked|discussed|not_mentioned",
+    "pricingDiscussed": boolean,
+    "pricingAmounts": ["$100", "$50"],
+    "objectionsRaised": [{"objection": "string", "resolved": boolean}],
+    "commitmentLevel": "high|medium|low"
+  }
+}
+
+ANALYSIS GUIDELINES:
+- servicesDiscussed: Extract ALL specific services mentioned (e.g., "Dryer Vent Cleaning", "HVAC Duct Cleaning", "Safety Inspection")
+- transcriptSummary: 2-3 sentences covering customer needs, services discussed, and outcome
+- talkTimeAnalysis: Count words (not including role labels) for CSR vs customer
+- responseQuality:
+  * questionsAnswered: Count customer questions that got responses
+  * acknowledgmentCount: Count empathy phrases ("I understand", "I see", "That makes sense", etc.)
+  * empathyScore: 0-100 based on overall empathy and professionalism
+- keyTopics: Identify 5-7 main topics discussed with frequency count and category
+- conversionIndicators:
+  * appointmentStatus: Determine if appointment was booked, just discussed, or not mentioned
+  * pricingDiscussed: True if any pricing was discussed
+  * pricingAmounts: Extract specific dollar amounts mentioned
+  * objectionsRaised: List concerns/objections and whether they were addressed
+  * commitmentLevel: high (ready to book), medium (interested), low (uncertain)`;
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      temperature: 0.2,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Analyze this conversation:\n\n${conversationText}` }
+      ],
+      max_tokens: 1500,
+    });
+
+    const responseText = completion.choices[0]?.message?.content?.trim() || '{}';
+    
+    // Parse JSON safely
+    let analysis: any;
+    try {
+      analysis = JSON.parse(responseText);
+    } catch (e) {
+      // Try to extract JSON from markdown or other formatting
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        analysis = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error('Failed to parse analysis response');
+      }
+    }
+
+    // Calculate talk time percentages
+    const totalWords = (analysis.talkTimeAnalysis?.csrWordCount || 0) + (analysis.talkTimeAnalysis?.customerWordCount || 0);
+    const csrPercentage = totalWords > 0 ? Math.round((analysis.talkTimeAnalysis.csrWordCount / totalWords) * 100) : 50;
+    const customerPercentage = 100 - csrPercentage;
+
+    // Calculate overall response quality score
+    const maxQuestions = Math.max(analysis.responseQuality?.questionsAnswered || 0, 1);
+    const questionScore = Math.min((analysis.responseQuality?.questionsAnswered || 0) / maxQuestions * 100, 100);
+    const acknowledgmentScore = Math.min((analysis.responseQuality?.acknowledgmentCount || 0) * 20, 100);
+    const empathyScore = analysis.responseQuality?.empathyScore || 50;
+    const overallScore = Math.round((questionScore + acknowledgmentScore + empathyScore) / 3);
+
+    const conversationMetrics: ConversationMetrics = {
+      talkTimeRatio: {
+        csrWordCount: analysis.talkTimeAnalysis?.csrWordCount || 0,
+        customerWordCount: analysis.talkTimeAnalysis?.customerWordCount || 0,
+        csrPercentage,
+        customerPercentage,
+      },
+      responseQuality: {
+        questionsAnswered: analysis.responseQuality?.questionsAnswered || 0,
+        acknowledgmentCount: analysis.responseQuality?.acknowledgmentCount || 0,
+        empathyScore,
+        overallScore,
+      },
+      keyTopics: analysis.keyTopics || [],
+      conversionIndicators: {
+        appointmentStatus: analysis.conversionIndicators?.appointmentStatus || 'not_mentioned',
+        pricingDiscussed: analysis.conversionIndicators?.pricingDiscussed || false,
+        pricingAmounts: analysis.conversionIndicators?.pricingAmounts || [],
+        objectionsRaised: analysis.conversionIndicators?.objectionsRaised || [],
+        commitmentLevel: analysis.conversionIndicators?.commitmentLevel || 'medium',
+      },
+    };
+
+    return {
+      servicesDiscussed: analysis.servicesDiscussed || [],
+      transcriptSummary: analysis.transcriptSummary || 'Call summary not available.',
+      conversationMetrics,
+    };
+  } catch (error) {
+    console.error('[Conversation Analysis] Error:', error);
+    // Return default values on error
+    return {
+      servicesDiscussed: [],
+      transcriptSummary: 'Analysis unavailable for this call.',
+      conversationMetrics: {
+        talkTimeRatio: {
+          csrWordCount: 0,
+          customerWordCount: 0,
+          csrPercentage: 50,
+          customerPercentage: 50,
+        },
+        responseQuality: {
+          questionsAnswered: 0,
+          acknowledgmentCount: 0,
+          empathyScore: 50,
+          overallScore: 50,
+        },
+        keyTopics: [],
+        conversionIndicators: {
+          appointmentStatus: 'not_mentioned',
+          pricingDiscussed: false,
+          pricingAmounts: [],
+          objectionsRaised: [],
+          commitmentLevel: 'medium',
+        },
+      },
+    };
+  }
+}
+
 // Initialize call session (called when call starts)
 app.post('/api/call/start', async (req, res) => {
   try {
@@ -1427,6 +1603,11 @@ app.post('/api/call/end', async (req, res) => {
       phone: customerPhone
     };
     
+    // Perform comprehensive conversation analysis
+    console.log('[Call] Running comprehensive conversation analysis...');
+    const conversationAnalysis = await analyzeConversation(transcriptTurns);
+    console.log('[Call] Analysis complete - Services:', conversationAnalysis.servicesDiscussed.join(', '));
+    
     // Create call session
     const session: CallSession = {
       callId: currentCallId,
@@ -1445,7 +1626,10 @@ app.post('/api/call/end', async (req, res) => {
         neutral: neutralCount,
         negative: negativeCount,
         averageScore: avgScore
-      }
+      },
+      servicesDiscussed: conversationAnalysis.servicesDiscussed,
+      transcriptSummary: conversationAnalysis.transcriptSummary,
+      conversationMetrics: conversationAnalysis.conversationMetrics,
     };
     
     // Save session
@@ -1492,6 +1676,94 @@ app.get('/api/call/session/:callId', (req, res) => {
   } catch (error) {
     console.error('[Call] Get session error:', error);
     res.status(500).json({ error: 'Failed to retrieve call session' });
+  }
+});
+
+// Analyze conversation endpoint (for regenerating analysis)
+app.post('/api/call/analyze-conversation', async (req, res) => {
+  try {
+    const { transcript } = req.body as { transcript: Array<{ role: string; content: string }> };
+    
+    if (!transcript || !Array.isArray(transcript) || transcript.length === 0) {
+      return res.status(400).json({ error: 'Valid transcript required' });
+    }
+
+    console.log('[Analysis] Analyzing conversation with', transcript.length, 'turns');
+    const analysis = await analyzeConversation(transcript);
+    
+    res.json(analysis);
+  } catch (error) {
+    console.error('[Analysis] Error:', error);
+    res.status(500).json({ error: 'Failed to analyze conversation' });
+  }
+});
+
+// Get current/active call session (live data during call)
+app.get('/api/call/current', async (_req, res) => {
+  try {
+    if (!currentCallId || !callStartTime) {
+      return res.status(404).json({ error: 'No active call session' });
+    }
+
+    // Return live call data (without full analysis)
+    const duration = Math.floor((Date.now() - callStartTime.getTime()) / 1000);
+    
+    // Get sentiment for current transcript
+    const transcriptWithSentiment = await Promise.all(
+      transcriptTurns.slice(0, Math.min(transcriptTurns.length, 50)).map(async (turn) => {
+        const sentiment = await analyzeSentiment(turn.content);
+        return {
+          role: turn.role,
+          content: turn.content,
+          timestamp: new Date().toISOString(),
+          sentiment: sentiment.sentiment,
+          sentimentScore: sentiment.score
+        };
+      })
+    );
+
+    const sentiments = transcriptWithSentiment.map(t => t.sentiment);
+    const positiveCount = sentiments.filter(s => s === 'positive').length;
+    const neutralCount = sentiments.filter(s => s === 'neutral').length;
+    const negativeCount = sentiments.filter(s => s === 'negative').length;
+    const avgScore = transcriptWithSentiment.reduce((sum, t) => sum + (t.sentimentScore || 0.5), 0) / Math.max(transcriptWithSentiment.length, 1);
+
+    const liveSession = {
+      callId: currentCallId,
+      customerPhone: currentCustomerPhone || 'unknown',
+      startTime: callStartTime.toISOString(),
+      endTime: null, // null indicates call is still active
+      duration,
+      transcript: transcriptWithSentiment,
+      nudgesShown: pendingNudges.map(n => ({
+        ...n,
+        timestamp: new Date(n.createdAt).toISOString()
+      })),
+      leadScoreHistory,
+      finalLeadScore: currentLeadScore?.score || 0,
+      initialLeadScore: leadScoreHistory[0]?.score || 0,
+      customerData: currentCustomerData || {
+        firstName: '',
+        lastName: '',
+        zipcode: '',
+        phone: currentCustomerPhone || 'unknown'
+      },
+      overallSentiment: {
+        positive: positiveCount,
+        neutral: neutralCount,
+        negative: negativeCount,
+        averageScore: avgScore
+      },
+      servicesDiscussed: [],
+      transcriptSummary: 'Call in progress...',
+      conversationMetrics: null, // null indicates analysis not yet run
+      isActive: true // flag to indicate this is a live call
+    };
+
+    res.json(liveSession);
+  } catch (error) {
+    console.error('[Call] Get current error:', error);
+    res.status(500).json({ error: 'Failed to retrieve current call session' });
   }
 });
 
