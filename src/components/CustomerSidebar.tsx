@@ -2,6 +2,7 @@ import { Separator } from "./ui/separator";
 import { Button } from "./ui/button";
 import { useCustomer } from "@/contexts/CustomerContext";
 import { useEffect, useState, useRef } from "react";
+import { X } from "lucide-react";
 
 type TranscriptTurn = {
   role: "user" | "assistant";
@@ -45,6 +46,7 @@ export const CustomerSidebar = () => {
   const hasCustomerData = customerData.firstName || customerData.lastName;
   const [transcript, setTranscript] = useState<TranscriptTurn[]>([]);
   const [nudges, setNudges] = useState<Nudge[]>([]);
+  const [dismissedNudges, setDismissedNudges] = useState<Set<string>>(new Set());
   const [leadScore, setLeadScore] = useState<LeadScoreData | null>(null);
   const [previousScore, setPreviousScore] = useState<number | null>(null);
   const [activeFilter, setActiveFilter] = useState<
@@ -57,6 +59,15 @@ export const CustomerSidebar = () => {
   const [loadingAppointments, setLoadingAppointments] = useState(false);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const transcriptContainerRef = useRef<HTMLDivElement>(null);
+
+  // Handler to dismiss individual nudges
+  const dismissNudge = (nudgeId: string) => {
+    setDismissedNudges((prev) => {
+      const newSet = new Set(prev);
+      newSet.add(nudgeId);
+      return newSet;
+    });
+  };
 
   // const isActiveTab = (s: "pending" | "past" | "cancelled") =>
   // activeFilter === s;
@@ -511,12 +522,12 @@ export const CustomerSidebar = () => {
             Nudges
           </h3>
           <div className="border rounded-lg bg-muted/30 h-[300px] overflow-y-auto p-4 space-y-3">
-            {nudges.length === 0 ? (
+            {nudges.filter((n) => !dismissedNudges.has(n.sid || n.id)).length === 0 ? (
               <p className="text-sm text-center py-8 text-brand-orange">
                 No nudges available yet
               </p>
             ) : (
-              nudges.map((nudge) => {
+              nudges.filter((n) => !dismissedNudges.has(n.sid || n.id)).map((nudge) => {
                 const colorClass =
                   nudge.type === "upsell"
                     ? "bg-primary/10 border-primary/30"
@@ -576,6 +587,13 @@ export const CustomerSidebar = () => {
                           {nudge.body}
                         </div>
                       </div>
+                      <button
+                        onClick={() => dismissNudge(nudge.sid || nudge.id)}
+                        className="flex-shrink-0 rounded-sm opacity-70 hover:opacity-100 transition-opacity hover:bg-slate-100 dark:hover:bg-slate-800 p-1"
+                        aria-label="Dismiss nudge"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
                     </div>
                   </div>
                 );

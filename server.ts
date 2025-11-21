@@ -1655,29 +1655,317 @@ app.post('/api/call/end', async (req, res) => {
   }
 });
 
+// In-memory cache for mock call sessions and history
+const mockCallSessionsCache = new Map<string, any>();
+let cachedMockCallHistory: any[] | null = null;
+
 // Get call session by ID
 app.get('/api/call/session/:callId', (req, res) => {
   try {
     const { callId } = req.params;
+    
+    // Check if it's a real session first
     const session = callSessions.get(callId);
     
-    if (!session) {
-      return res.status(404).json({ error: 'Call session not found' });
+    if (session) {
+      // Serialize Date objects to ISO strings
+      const serialized = {
+        ...session,
+        startTime: session.startTime instanceof Date ? session.startTime.toISOString() : session.startTime,
+        endTime: session.endTime instanceof Date ? session.endTime.toISOString() : session.endTime,
+      };
+      
+      return res.json(serialized);
     }
     
-    // Serialize Date objects to ISO strings
-    const serialized = {
-      ...session,
-      startTime: session.startTime instanceof Date ? session.startTime.toISOString() : session.startTime,
-      endTime: session.endTime instanceof Date ? session.endTime.toISOString() : session.endTime,
-    };
+    // Check if it's a mock call ID
+    if (callId.startsWith('mock-')) {
+      // Check cache first
+      if (mockCallSessionsCache.has(callId)) {
+        return res.json(mockCallSessionsCache.get(callId));
+      }
+      
+      // Generate mock session data
+      const mockSession = generateMockCallSession(callId);
+      if (mockSession) {
+        mockCallSessionsCache.set(callId, mockSession);
+        return res.json(mockSession);
+      }
+    }
     
-    res.json(serialized);
+    return res.status(404).json({ error: 'Call session not found' });
   } catch (error) {
     console.error('[Call] Get session error:', error);
     res.status(500).json({ error: 'Failed to retrieve call session' });
   }
 });
+
+// Helper function to generate mock call session with full details
+function generateMockCallSession(callId: string) {
+  try {
+    // Find the call in the cached mock data
+    if (!cachedMockCallHistory) {
+      cachedMockCallHistory = generateMockCallsForHistory();
+    }
+    const mockCall = cachedMockCallHistory.find(c => c.callId === callId);
+    
+    if (!mockCall) return null;
+    
+    // Extract customer name parts
+    const nameParts = mockCall.customerName.split(' ');
+    const firstName = nameParts[0] || 'Unknown';
+    const lastName = nameParts.slice(1).join(' ') || 'Customer';
+    
+    // Generate full transcript
+    const transcript = generateMockTranscript(mockCall);
+    
+    // Generate nudges
+    const nudges = generateMockNudges(mockCall);
+    
+    // Generate lead score history
+    const leadScoreHistory = generateMockLeadScoreHistory(mockCall, transcript.length);
+    
+    // Generate conversation metrics
+    const conversationMetrics = generateMockConversationMetrics(mockCall, transcript.length);
+    
+    return {
+      callId: mockCall.callId,
+      customerPhone: mockCall.customerPhone,
+      startTime: mockCall.date,
+      endTime: new Date(new Date(mockCall.date).getTime() + mockCall.duration * 1000).toISOString(),
+      duration: mockCall.duration,
+      transcript,
+      nudgesShown: nudges,
+      leadScoreHistory,
+      finalLeadScore: mockCall.finalLeadScore,
+      initialLeadScore: mockCall.finalLeadScore - mockCall.leadScoreChange,
+      customerData: {
+        firstName,
+        lastName,
+        zipcode: `${Math.floor(Math.random() * 90000) + 10000}`,
+        phone: mockCall.customerPhone
+      },
+      overallSentiment: mockCall.sentiment,
+      servicesDiscussed: mockCall.servicesDiscussed,
+      transcriptSummary: mockCall.summary,
+      conversationMetrics
+    };
+  } catch (error) {
+    console.error('[Mock Session] Generation error:', error);
+    return null;
+  }
+}
+
+// Helper: Generate mock transcript
+function generateMockTranscript(mockCall: any) {
+  const transcript: any[] = [];
+  const turnCount = Math.floor(mockCall.duration / 30); // ~30 seconds per turn
+  const startTime = new Date(mockCall.date);
+  
+  const conversationTemplates: Record<string, any[]> = {
+    booked: [
+      { role: 'assistant', content: 'Hi, I need help with my dryer vent. It\'s not working properly.', sentiment: 'neutral' },
+      { role: 'user', content: 'Thank you for calling Neighborly! My name is ' + mockCall.csrName.split(' ')[0] + '. How can I help you today?', sentiment: 'positive' },
+      { role: 'assistant', content: 'I\'d like to schedule a dryer vent cleaning as soon as possible. When are you available?', sentiment: 'positive' },
+      { role: 'user', content: 'I\'d be happy to help you with that! Let me check our availability. We have openings this week.', sentiment: 'positive' },
+      { role: 'assistant', content: 'Great! What times do you have available?', sentiment: 'positive' },
+      { role: 'user', content: 'We have Tuesday at 2 PM or Thursday at 10 AM. Which works better for you?', sentiment: 'positive' },
+      { role: 'assistant', content: 'Tuesday at 2 PM would be perfect. How much will this cost?', sentiment: 'positive' },
+      { role: 'user', content: 'The dryer vent cleaning service is $129, and it includes a full inspection. Would you like to add a safety inspection for $45?', sentiment: 'positive' },
+      { role: 'assistant', content: 'Yes, let\'s add the safety inspection. I want to make sure everything is safe.', sentiment: 'positive' },
+      { role: 'user', content: 'Excellent choice! Your total will be $174. Let me get your address to confirm the appointment.', sentiment: 'positive' },
+      { role: 'assistant', content: 'My address is 123 Main Street. Will you send a confirmation?', sentiment: 'positive' },
+      { role: 'user', content: 'Yes, you\'ll receive a confirmation email and text message shortly. Thank you for choosing Neighborly!', sentiment: 'positive' },
+    ],
+    converted: [
+      { role: 'assistant', content: 'Hi, I\'m interested in getting my dryer vent cleaned. Can you tell me about your services?', sentiment: 'neutral' },
+      { role: 'user', content: 'Absolutely! I\'m ' + mockCall.csrName.split(' ')[0] + '. We offer comprehensive dryer vent cleaning with inspection and airflow testing.', sentiment: 'positive' },
+      { role: 'assistant', content: 'That sounds good. How long does it typically take?', sentiment: 'neutral' },
+      { role: 'user', content: 'Most cleanings take 1-2 hours. We can usually schedule same-day service if needed.', sentiment: 'positive' },
+      { role: 'assistant', content: 'What about pricing? I want to make sure it fits my budget.', sentiment: 'neutral' },
+      { role: 'user', content: 'Our standard cleaning is $129. We also offer a bundle with HVAC duct cleaning for $199, saving you $50.', sentiment: 'positive' },
+      { role: 'assistant', content: 'That bundle sounds interesting. Let me discuss with my spouse and I\'ll call back to schedule.', sentiment: 'positive' },
+      { role: 'user', content: 'Perfect! I\'ll send you an email with all the details. When would be good for a follow-up?', sentiment: 'positive' },
+      { role: 'assistant', content: 'Tomorrow afternoon would work. Thanks for the information!', sentiment: 'positive' },
+      { role: 'user', content: 'You\'re welcome! Looking forward to working with you!', sentiment: 'positive' },
+    ],
+    lost: [
+      { role: 'assistant', content: 'I\'m calling about dryer vent cleaning. How much do you charge?', sentiment: 'neutral' },
+      { role: 'user', content: 'Hello! I\'m ' + mockCall.csrName.split(' ')[0] + '. Our dryer vent cleaning is $129, including complete cleaning and inspection.', sentiment: 'positive' },
+      { role: 'assistant', content: 'That seems expensive. I saw other companies charging around $80.', sentiment: 'negative' },
+      { role: 'user', content: 'I understand your concern. Our pricing reflects our thorough process and experienced technicians with a satisfaction guarantee.', sentiment: 'positive' },
+      { role: 'assistant', content: 'I appreciate that, but I need to stay within budget. Maybe I\'ll call back later.', sentiment: 'negative' },
+      { role: 'user', content: 'I completely understand. Would you like me to email you information about our services?', sentiment: 'neutral' },
+      { role: 'assistant', content: 'No, that\'s okay. I\'ll reach out if needed. Thanks anyway.', sentiment: 'negative' },
+      { role: 'user', content: 'No problem at all. Feel free to contact us anytime. Have a good day!', sentiment: 'neutral' },
+    ],
+    in_progress: [
+      { role: 'assistant', content: 'Hi, I\'m interested in your dryer vent services but have some questions first.', sentiment: 'neutral' },
+      { role: 'user', content: 'Of course! I\'m ' + mockCall.csrName.split(' ')[0] + '. I\'m happy to answer any questions.', sentiment: 'positive' },
+      { role: 'assistant', content: 'What exactly is included in the dryer vent cleaning service?', sentiment: 'neutral' },
+      { role: 'user', content: 'Great question! We remove all lint, clean the entire duct system, check blockages, and test airflow.', sentiment: 'positive' },
+      { role: 'assistant', content: 'How often should dryer vents be cleaned?', sentiment: 'neutral' },
+      { role: 'user', content: 'We recommend annual cleaning. If you use your dryer heavily, twice a year is better for safety.', sentiment: 'positive' },
+      { role: 'assistant', content: 'I see. Let me think about it. Can I call back later?', sentiment: 'neutral' },
+      { role: 'user', content: 'Absolutely! Would you like me to email you our service details and pricing?', sentiment: 'positive' },
+      { role: 'assistant', content: 'Yes, that would be helpful. My email is customer@example.com.', sentiment: 'neutral' },
+      { role: 'user', content: 'Perfect! I\'ll send that over right away. Feel free to call us anytime!', sentiment: 'positive' },
+    ],
+  };
+  
+  const template = conversationTemplates[mockCall.conversionStatus] || conversationTemplates.in_progress;
+  
+  // Generate transcript with timestamps
+  template.forEach((turn: any, index: number) => {
+    const timestamp = new Date(startTime.getTime() + index * 30000);
+    const sentimentScore = turn.sentiment === 'positive' ? 0.75 + Math.random() * 0.20 :
+                          turn.sentiment === 'negative' ? 0.15 + Math.random() * 0.25 :
+                          0.45 + Math.random() * 0.20;
+    
+    transcript.push({
+      role: turn.role,
+      content: turn.content,
+      timestamp: timestamp.toISOString(),
+      sentiment: turn.sentiment,
+      sentimentScore: Math.round(sentimentScore * 100) / 100
+    });
+  });
+  
+  return transcript;
+}
+
+// Helper: Generate mock nudges
+function generateMockNudges(mockCall: any) {
+  const nudges: any[] = [];
+  const now = new Date(mockCall.date);
+  
+  const nudgeTemplates = [
+    {
+      id: 'nudge-1',
+      type: 'upsell',
+      title: 'Safety Inspection Bundle',
+      body: 'Add safety inspection for $45. Identifies fire hazards & improves efficiency by 30%.',
+      priority: 1
+    },
+    {
+      id: 'nudge-2',
+      type: 'cross_sell',
+      title: 'HVAC Duct Cleaning',
+      body: 'Bundle with HVAC cleaning saves $50 & improves air quality.',
+      priority: 2
+    },
+    {
+      id: 'nudge-3',
+      type: 'tip',
+      title: 'Ask About Last Cleaning',
+      body: 'Ask: "When did you last clean the vent?" 3+ years = high fire risk.',
+      priority: 2
+    },
+  ];
+  
+  const nudgeCount = mockCall.conversionStatus === 'booked' ? 3 : mockCall.conversionStatus === 'converted' ? 2 : 1;
+  
+  for (let i = 0; i < nudgeCount && i < nudgeTemplates.length; i++) {
+    nudges.push({
+      ...nudgeTemplates[i],
+      timestamp: new Date(now.getTime() + (i + 2) * 60000).toISOString()
+    });
+  }
+  
+  return nudges;
+}
+
+// Helper: Generate mock lead score history
+function generateMockLeadScoreHistory(mockCall: any, turnCount: number) {
+  const history: any[] = [];
+  const initialScore = mockCall.finalLeadScore - mockCall.leadScoreChange;
+  const startTime = new Date(mockCall.date);
+  const steps = Math.min(Math.floor(turnCount / 2), 5);
+  
+  const reasons = [
+    'Initial score based on customer history',
+    'Customer expressed urgency',
+    'Positive engagement detected',
+    'Pricing discussion - ready to book',
+    'Commitment signal detected',
+  ];
+  
+  history.push({
+    score: Math.round(initialScore * 10) / 10,
+    timestamp: startTime.toISOString(),
+    reason: reasons[0]
+  });
+  
+  for (let i = 1; i <= steps; i++) {
+    const progress = i / steps;
+    const score = initialScore + (mockCall.leadScoreChange * progress);
+    
+    history.push({
+      score: Math.round(score * 10) / 10,
+      timestamp: new Date(startTime.getTime() + (i * 60000)).toISOString(),
+      reason: reasons[i] || reasons[reasons.length - 1]
+    });
+  }
+  
+  return history;
+}
+
+// Helper: Generate mock conversation metrics
+function generateMockConversationMetrics(mockCall: any, turnCount: number) {
+  const csrWordCount = 200 + Math.floor(Math.random() * 150);
+  const customerWordCount = 150 + Math.floor(Math.random() * 100);
+  const total = csrWordCount + customerWordCount;
+  
+  const empathyScore = mockCall.conversionStatus === 'booked' ? 80 + Math.floor(Math.random() * 15) :
+                       mockCall.conversionStatus === 'converted' ? 70 + Math.floor(Math.random() * 15) :
+                       mockCall.conversionStatus === 'lost' ? 50 + Math.floor(Math.random() * 20) :
+                       60 + Math.floor(Math.random() * 15);
+  
+  const questionsAnswered = 3 + Math.floor(Math.random() * 5);
+  const acknowledgmentCount = 2 + Math.floor(Math.random() * 4);
+  
+  const keyTopics = [
+    { topic: 'Dryer Vent Safety', frequency: 5, category: 'concerns' },
+    { topic: 'Service Pricing', frequency: 4, category: 'pricing' },
+    { topic: 'Appointment Scheduling', frequency: 3, category: 'scheduling' },
+    { topic: 'Fire Hazard Prevention', frequency: 2, category: 'concerns' },
+    { topic: 'Service Duration', frequency: 2, category: 'services' },
+  ];
+  
+  const appointmentStatus = mockCall.conversionStatus === 'booked' ? 'booked' :
+                            mockCall.conversionStatus === 'converted' ? 'discussed' :
+                            'not_mentioned';
+  
+  const objectionsRaised = mockCall.conversionStatus === 'lost' ? [
+    { objection: 'Price concerns - too expensive', resolved: false }
+  ] : mockCall.conversionStatus === 'converted' ? [
+    { objection: 'Need to check with spouse', resolved: true }
+  ] : [];
+  
+  return {
+    talkTimeRatio: {
+      csrWordCount,
+      customerWordCount,
+      csrPercentage: Math.round((csrWordCount / total) * 100),
+      customerPercentage: Math.round((customerWordCount / total) * 100)
+    },
+    responseQuality: {
+      questionsAnswered,
+      acknowledgmentCount,
+      empathyScore,
+      overallScore: Math.round((questionsAnswered * 10 + acknowledgmentCount * 15 + empathyScore) / 3)
+    },
+    keyTopics,
+    conversionIndicators: {
+      appointmentStatus,
+      pricingDiscussed: true,
+      pricingAmounts: ['$129', '$45', '$174'],
+      objectionsRaised,
+      commitmentLevel: mockCall.conversionStatus === 'booked' ? 'high' :
+                       mockCall.conversionStatus === 'converted' ? 'medium' : 'low'
+    }
+  };
+}
 
 // Analyze conversation endpoint (for regenerating analysis)
 app.post('/api/call/analyze-conversation', async (req, res) => {
@@ -1795,6 +2083,198 @@ app.get('/api/call/latest', (_req, res) => {
     res.status(500).json({ error: 'Failed to retrieve latest call session' });
   }
 });
+
+// Get call history (combines real sessions with mock data)
+app.get('/api/call/history', (_req, res) => {
+  try {
+    const calls: any[] = [];
+    
+    // Get all real call sessions from memory
+    const sessions = Array.from(callSessions.values());
+    
+    // Transform real sessions to match CallHistoryItem format
+    sessions.forEach((session) => {
+      const conversionStatus = session.conversationMetrics?.conversionIndicators?.appointmentStatus === 'booked' 
+        ? 'booked' 
+        : session.conversationMetrics?.conversionIndicators?.appointmentStatus === 'discussed'
+        ? 'converted'
+        : session.conversationMetrics?.conversionIndicators?.commitmentLevel === 'high'
+        ? 'converted'
+        : session.conversationMetrics?.conversionIndicators?.commitmentLevel === 'low'
+        ? 'lost'
+        : 'in_progress';
+      
+      calls.push({
+        callId: session.callId,
+        customerName: `${session.customerData.firstName} ${session.customerData.lastName}`.trim() || 'Unknown Customer',
+        customerPhone: session.customerData.phone,
+        csrName: 'Current Agent', // In production, this would come from auth/session
+        date: session.startTime instanceof Date ? session.startTime.toISOString() : session.startTime,
+        duration: session.duration,
+        conversionStatus,
+        finalLeadScore: session.finalLeadScore,
+        leadScoreChange: session.finalLeadScore - session.initialLeadScore,
+        sentiment: {
+          positive: session.overallSentiment.positive,
+          neutral: session.overallSentiment.neutral,
+          negative: session.overallSentiment.negative,
+          overall: session.overallSentiment.positive > session.overallSentiment.negative ? 'positive' :
+                   session.overallSentiment.negative > session.overallSentiment.positive ? 'negative' : 'neutral',
+          averageScore: session.overallSentiment.averageScore
+        },
+        servicesDiscussed: session.servicesDiscussed || [],
+        summary: session.transcriptSummary || 'No summary available',
+        isActive: false,
+        isRealData: true
+      });
+    });
+    
+    // Add mock data for demonstration (using cached data for consistency)
+    if (!cachedMockCallHistory) {
+      cachedMockCallHistory = generateMockCallsForHistory();
+    }
+    calls.push(...cachedMockCallHistory);
+    
+    // Sort by date descending (most recent first)
+    calls.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    
+    res.json({ calls });
+  } catch (error) {
+    console.error('[Call History] Error:', error);
+    res.status(500).json({ error: 'Failed to retrieve call history', calls: [] });
+  }
+});
+
+// Helper function to generate mock call history data
+function generateMockCallsForHistory() {
+  const firstNames = [
+    'Sarah', 'Michael', 'Jennifer', 'David', 'Lisa', 'Robert', 'Amanda', 'James',
+    'Emily', 'Christopher', 'Jessica', 'Daniel', 'Ashley', 'Matthew', 'Michelle'
+  ];
+  
+  const lastNames = [
+    'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez',
+    'Martinez', 'Hernandez', 'Lopez', 'Wilson', 'Anderson', 'Thomas', 'Taylor'
+  ];
+  
+  const csrNames = [
+    'Alex Thompson',
+    'Jordan Martinez',
+    'Taylor Chen',
+    'Morgan Anderson',
+    'Casey Williams',
+    'Riley Johnson'
+  ];
+  
+  const services = [
+    'Dryer Vent Cleaning',
+    'Dryer Vent Inspection',
+    'Dryer Vent Repair',
+    'HVAC Maintenance',
+    'Air Duct Cleaning'
+  ];
+  
+  const summaries = [
+    'Customer inquired about dryer vent cleaning services. Discussed pricing and availability. Successfully booked appointment.',
+    'Residential customer called regarding dryer efficiency issues. Recommended inspection and cleaning.',
+    'Follow-up call for existing customer. Discussed additional HVAC maintenance services.',
+    'New customer inquiry about dryer vent installation. Provided detailed quote and timeline.',
+    'Customer concerned about fire hazards from lint buildup. Emergency service scheduled.',
+    'Routine maintenance call. Scheduled annual dryer vent inspection and cleaning.',
+    'Customer had unusual dryer noises. Recommended immediate inspection.',
+    'Commercial property manager inquiring about multi-unit services.',
+    'Customer had questions about dryer vent safety standards.',
+    'Upset customer regarding previous service. Offered complimentary follow-up.'
+  ];
+  
+  const randomElement = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+  const randomInt = (min: number, max: number): number => Math.floor(Math.random() * (max - min + 1)) + min;
+  
+  const mockCalls: any[] = [];
+  const count = randomInt(12, 18);
+  
+  for (let i = 0; i < count; i++) {
+    const conversionRand = Math.random();
+    const conversionStatus = conversionRand < 0.30 ? 'booked' :
+                             conversionRand < 0.70 ? 'converted' :
+                             conversionRand < 0.90 ? 'lost' : 'in_progress';
+    
+    // Generate sentiment based on conversion status
+    let positive: number, neutral: number, negative: number;
+    if (conversionStatus === 'booked' || conversionStatus === 'converted') {
+      positive = randomInt(50, 80);
+      negative = randomInt(0, 10);
+      neutral = 100 - positive - negative;
+    } else if (conversionStatus === 'lost') {
+      negative = randomInt(30, 60);
+      positive = randomInt(10, 30);
+      neutral = 100 - positive - negative;
+    } else {
+      positive = randomInt(30, 50);
+      negative = randomInt(10, 30);
+      neutral = 100 - positive - negative;
+    }
+    
+    const overall = positive > neutral && positive > negative ? 'positive' :
+                    negative > positive && negative > neutral ? 'negative' : 'neutral';
+    const averageScore = (positive * 1.0 + neutral * 0.5 + negative * 0.0) / 100;
+    
+    // Generate lead score based on conversion status
+    let finalLeadScore: number;
+    if (conversionStatus === 'booked') {
+      finalLeadScore = randomInt(75, 95) / 10;
+    } else if (conversionStatus === 'converted') {
+      finalLeadScore = randomInt(65, 85) / 10;
+    } else if (conversionStatus === 'lost') {
+      finalLeadScore = randomInt(20, 50) / 10;
+    } else {
+      finalLeadScore = randomInt(50, 70) / 10;
+    }
+    
+    const leadScoreChange = randomInt(-15, 30) / 10;
+    
+    // Generate date (0-30 days ago)
+    const daysAgo = randomInt(0, 30);
+    const date = new Date();
+    date.setDate(date.getDate() - daysAgo);
+    date.setHours(randomInt(8, 18), randomInt(0, 59), randomInt(0, 59));
+    
+    // Generate services
+    const serviceCount = randomInt(1, 3);
+    const servicesDiscussed: string[] = [];
+    for (let j = 0; j < serviceCount; j++) {
+      const service = randomElement(services);
+      if (!servicesDiscussed.includes(service)) {
+        servicesDiscussed.push(service);
+      }
+    }
+    
+    mockCalls.push({
+      callId: `mock-${Date.now()}-${i}`,
+      customerName: `${randomElement(firstNames)} ${randomElement(lastNames)}`,
+      customerPhone: `(${randomInt(200, 999)}) ${randomInt(200, 999)}-${randomInt(1000, 9999)}`,
+      csrName: randomElement(csrNames),
+      date: date.toISOString(),
+      duration: randomInt(180, 900),
+      conversionStatus,
+      finalLeadScore,
+      leadScoreChange,
+      sentiment: {
+        positive,
+        neutral,
+        negative,
+        overall: overall as 'positive' | 'neutral' | 'negative',
+        averageScore
+      },
+      servicesDiscussed,
+      summary: randomElement(summaries),
+      isActive: false,
+      isRealData: false
+    });
+  }
+  
+  return mockCalls;
+}
 
 // Return current pending nudges without draining; client will ACK what it shows
 app.get('/api/nudges/latest', (_req, res) => {

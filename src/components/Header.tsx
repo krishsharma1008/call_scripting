@@ -57,11 +57,11 @@ export const Header = () => {
             size="sm"
             // className="text-primary-foreground hover:bg-white/10"
             className={`${
-              isActive("/dashboard")
+              isActive("/dashboard", "/calls-history")
                 ? "text-primary font-bold border-b-2 border-primary"
                 : "text-white"
             } hover:bg-white/10`}
-            onClick={() => navigate("/dashboard")}
+            onClick={() => navigate("/calls-history")}
           >
             DASHBOARD
           </Button>

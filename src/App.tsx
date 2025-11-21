@@ -10,6 +10,7 @@ import IntroScript from "./pages/IntroScript";
 import ServicePageTabs from "./pages/ServicePageTabs";
 import NotFound from "./pages/NotFound";
 import CallDashboard from "./pages/CallDashboard";
+import CallsHistory from "./pages/CallsHistory";
 import { CallProvider } from "./contexts/CallContext";
 import { NudgesTray } from "./components/NudgesTray";
 
@@ -30,6 +31,7 @@ const App = () => {
                     <Route path="/" element={<Index />} />
                     <Route path="/intro" element={<IntroScript />} />
                     <Route path="/service" element={<ServicePageTabs />} />
+                    <Route path="/calls-history" element={<CallsHistory />} />
                     <Route path="/dashboard" element={<CallDashboard />} />
                     <Route path="/dashboard/:callId" element={<CallDashboard />} />
                     <Route path="*" element={<NotFound />} />

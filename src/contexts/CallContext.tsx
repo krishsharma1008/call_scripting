@@ -54,7 +54,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       pcRef.current = null;
     }
     
-    // Save call session and navigate to dashboard
+    // Save call session and navigate to calls history
     try {
       const resp = await fetch('http://localhost:3001/api/call/end', {
         method: 'POST',
@@ -62,16 +62,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
       });
       
       if (resp.ok) {
-        const data = await resp.json();
-        const callId = data.callId;
-        
-        // Navigate to dashboard after a short delay
+        // Navigate to calls history page after a short delay
         setTimeout(() => {
           if (navigateRef.current) {
-            navigateRef.current(`/dashboard/${callId}`);
+            navigateRef.current('/calls-history');
           } else {
             // Fallback: use window.location if navigate not available
-            window.location.href = `/dashboard/${callId}`;
+            window.location.href = '/calls-history';
           }
         }, 1000);
       }
