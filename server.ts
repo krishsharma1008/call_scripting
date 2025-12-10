@@ -2087,61 +2087,282 @@ app.get('/api/call/latest', (_req, res) => {
 // Get call history (combines real sessions with mock data)
 app.get('/api/call/history', (_req, res) => {
   try {
-    const calls: any[] = [];
-    
-    // Get all real call sessions from memory
-    const sessions = Array.from(callSessions.values());
-    
-    // Transform real sessions to match CallHistoryItem format
-    sessions.forEach((session) => {
-      const conversionStatus = session.conversationMetrics?.conversionIndicators?.appointmentStatus === 'booked' 
-        ? 'booked' 
-        : session.conversationMetrics?.conversionIndicators?.appointmentStatus === 'discussed'
-        ? 'converted'
-        : session.conversationMetrics?.conversionIndicators?.commitmentLevel === 'high'
-        ? 'converted'
-        : session.conversationMetrics?.conversionIndicators?.commitmentLevel === 'low'
-        ? 'lost'
-        : 'in_progress';
-      
-      calls.push({
-        callId: session.callId,
-        customerName: `${session.customerData.firstName} ${session.customerData.lastName}`.trim() || 'Unknown Customer',
-        customerPhone: session.customerData.phone,
-        csrName: 'Current Agent', // In production, this would come from auth/session
-        date: session.startTime instanceof Date ? session.startTime.toISOString() : session.startTime,
-        duration: session.duration,
-        conversionStatus,
-        finalLeadScore: session.finalLeadScore,
-        leadScoreChange: session.finalLeadScore - session.initialLeadScore,
-        sentiment: {
-          positive: session.overallSentiment.positive,
-          neutral: session.overallSentiment.neutral,
-          negative: session.overallSentiment.negative,
-          overall: session.overallSentiment.positive > session.overallSentiment.negative ? 'positive' :
-                   session.overallSentiment.negative > session.overallSentiment.positive ? 'negative' : 'neutral',
-          averageScore: session.overallSentiment.averageScore
-        },
-        servicesDiscussed: session.servicesDiscussed || [],
-        summary: session.transcriptSummary || 'No summary available',
-        isActive: false,
-        isRealData: true
-      });
-    });
-    
-    // Add mock data for demonstration (using cached data for consistency)
-    if (!cachedMockCallHistory) {
-      cachedMockCallHistory = generateMockCallsForHistory();
-    }
-    calls.push(...cachedMockCallHistory);
-    
-    // Sort by date descending (most recent first)
-    calls.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    
+    const calls = buildCallHistoryItems();
     res.json({ calls });
   } catch (error) {
     console.error('[Call History] Error:', error);
     res.status(500).json({ error: 'Failed to retrieve call history', calls: [] });
+  }
+});
+
+function buildCallHistoryItems() {
+  const calls: any[] = [];
+  const sessions = Array.from(callSessions.values());
+  
+  sessions.forEach((session) => {
+    const conversionStatus = session.conversationMetrics?.conversionIndicators?.appointmentStatus === 'booked' 
+      ? 'booked' 
+      : session.conversationMetrics?.conversionIndicators?.appointmentStatus === 'discussed'
+      ? 'converted'
+      : session.conversationMetrics?.conversionIndicators?.commitmentLevel === 'high'
+      ? 'converted'
+      : session.conversationMetrics?.conversionIndicators?.commitmentLevel === 'low'
+      ? 'lost'
+      : 'in_progress';
+
+    calls.push({
+      callId: session.callId,
+      customerName: `${session.customerData.firstName} ${session.customerData.lastName}`.trim() || 'Unknown Customer',
+      customerPhone: session.customerData.phone,
+      csrName: 'Current Agent',
+      date: session.startTime instanceof Date ? session.startTime.toISOString() : session.startTime,
+      duration: session.duration,
+      conversionStatus,
+      finalLeadScore: session.finalLeadScore,
+      leadScoreChange: session.finalLeadScore - session.initialLeadScore,
+      sentiment: {
+        positive: session.overallSentiment.positive,
+        neutral: session.overallSentiment.neutral,
+        negative: session.overallSentiment.negative,
+        overall: session.overallSentiment.positive > session.overallSentiment.negative ? 'positive' :
+                 session.overallSentiment.negative > session.overallSentiment.positive ? 'negative' : 'neutral',
+        averageScore: session.overallSentiment.averageScore
+      },
+      servicesDiscussed: session.servicesDiscussed || [],
+      summary: session.transcriptSummary || 'No summary available',
+      isActive: false,
+      isRealData: true
+    });
+  });
+
+  if (!cachedMockCallHistory) {
+    cachedMockCallHistory = generateMockCallsForHistory();
+  }
+  calls.push(...cachedMockCallHistory);
+
+  calls.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  return calls;
+}
+
+function summarizeCalls(calls: any[]) {
+  const totalCalls = calls.length;
+  const bookedCalls = calls.filter((c) => c.conversionStatus === 'booked' || c.conversionStatus === 'converted').length;
+  const lostCalls = calls.filter((c) => c.conversionStatus === 'lost').length;
+  const conversionRate = totalCalls ? (bookedCalls / totalCalls) * 100 : 0;
+  const avgLeadScore = totalCalls ? calls.reduce((sum, call) => sum + (call.finalLeadScore || 0), 0) / totalCalls : 0;
+  const avgDuration = totalCalls ? calls.reduce((sum, call) => sum + (call.duration || 0), 0) / totalCalls : 0;
+  const avgSentiment = totalCalls
+    ? calls.reduce((sum, call) => sum + ((call.sentiment?.averageScore ?? 0.5) * 100), 0) / totalCalls
+    : 0;
+  const leadScoreTrend = totalCalls ? calls.reduce((sum, call) => sum + (call.leadScoreChange || 0), 0) / totalCalls : 0;
+
+  const sentimentBreakdown = calls.reduce(
+    (acc, call) => {
+      acc.positive += call.sentiment?.positive ?? 0;
+      acc.neutral += call.sentiment?.neutral ?? 0;
+      acc.negative += call.sentiment?.negative ?? 0;
+      return acc;
+    },
+    { positive: 0, neutral: 0, negative: 0 }
+  );
+
+  const serviceCounts = new Map<string, number>();
+  calls.forEach((call) => {
+    (call.servicesDiscussed || []).forEach((service: string) => {
+      serviceCounts.set(service, (serviceCounts.get(service) || 0) + 1);
+    });
+  });
+
+  const topServices = Array.from(serviceCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([name, count]) => ({ name, count }));
+
+  return {
+    totalCalls,
+    bookedCalls,
+    lostCalls,
+    conversionRate,
+    avgLeadScore,
+    avgDuration,
+    avgSentiment,
+    leadScoreTrend,
+    sentimentBreakdown,
+    topServices,
+    recentCalls: calls.slice(0, 5),
+  };
+}
+
+function buildCsrDistribution(calls: any[]) {
+  const grouped = new Map<string, any[]>();
+  calls.forEach((call) => {
+    if (!grouped.has(call.csrName)) {
+      grouped.set(call.csrName, []);
+    }
+    grouped.get(call.csrName)!.push(call);
+  });
+
+  return Array.from(grouped.entries()).map(([name, csrCalls]) => {
+    const stats = summarizeCalls(csrCalls);
+    return {
+      name,
+      totalCalls: stats.totalCalls,
+      conversionRate: stats.conversionRate,
+      avgLeadScore: stats.avgLeadScore,
+      avgDuration: stats.avgDuration,
+    };
+  }).sort((a, b) => b.conversionRate - a.conversionRate);
+}
+
+function determineQuartile(
+  distribution: Array<{ name: string; conversionRate: number }>,
+  agentName: string
+) {
+  if (!distribution.length) {
+    return { rank: null, label: 'No data available', percentile: 0, totalAgents: 0 };
+  }
+
+  const sorted = [...distribution].sort((a, b) => b.conversionRate - a.conversionRate);
+  const index = sorted.findIndex((item) => item.name === agentName);
+  if (index === -1) {
+    return {
+      rank: null,
+      label: 'No agent data available yet',
+      percentile: 0,
+      totalAgents: sorted.length,
+    };
+  }
+
+  const percentile = sorted.length ? ((sorted.length - index) / sorted.length) * 100 : 0;
+  const quartile = Math.min(4, Math.max(1, Math.ceil(((index + 1) / sorted.length) * 4)));
+  const labels = ['Top 25% performers', 'Upper-middle 50%', 'Lower-middle 50%', 'Bottom 25%'];
+
+  return {
+    rank: quartile,
+    label: labels[quartile - 1] || 'Performance segment',
+    percentile,
+    totalAgents: sorted.length,
+  };
+}
+
+async function generateTrainingNarrative(context: any) {
+  try {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      temperature: 0.4,
+      max_tokens: 600,
+      messages: [
+        {
+          role: 'system',
+          content: `You are a seasoned customer service sales coach. Given structured metrics, highlight strengths, growth areas, and provide an action plan. 
+Respond ONLY in JSON with this exact shape:
+{
+  "strengths": ["string"],
+  "growthAreas": ["string"],
+  "actionPlan": [{"title": "string", "detail": "string"}],
+  "coachingNarrative": "string"
+}`,
+        },
+        {
+          role: 'user',
+          content: `Analyze these metrics and craft coaching guidance:\n${JSON.stringify(context, null, 2)}`,
+        },
+      ],
+    });
+
+    const text = completion.choices[0]?.message?.content?.trim() || '';
+    if (!text) {
+      throw new Error('Empty AI response');
+    }
+
+    const tryParse = (payload: string) => {
+      try {
+        return JSON.parse(payload);
+      } catch {
+        const match = payload.match(/\{[\s\S]*\}/);
+        return match ? JSON.parse(match[0]) : null;
+      }
+    };
+
+    const parsed = tryParse(text);
+    if (parsed && typeof parsed === 'object') {
+      return {
+        strengths: Array.isArray(parsed.strengths) ? parsed.strengths : [],
+        growthAreas: Array.isArray(parsed.growthAreas) ? parsed.growthAreas : [],
+        actionPlan: Array.isArray(parsed.actionPlan) ? parsed.actionPlan : [],
+        coachingNarrative: parsed.coachingNarrative || 'Review conversation details to improve future calls.',
+      };
+    }
+
+    throw new Error('Failed to parse AI response');
+  } catch (error) {
+    console.error('[Training] AI summary error:', error);
+    return {
+      strengths: ['Consistent service quality'],
+      growthAreas: ['Gather more qualifying details earlier in the call'],
+      actionPlan: [
+        { title: 'Refine discovery questions', detail: 'Add one deeper probing question within the first minute of each call.' },
+        { title: 'Document objections', detail: 'Track pricing objections in the CRM immediately after each call.' },
+      ],
+      coachingNarrative: 'Unable to generate a personalized narrative. Review recent calls to identify wins and focus areas.',
+    };
+  }
+}
+
+app.get('/api/training/insights', async (req, res) => {
+  try {
+    const agentName =
+      typeof req.query.csr === 'string' && req.query.csr.trim().length > 0
+        ? req.query.csr.trim()
+        : 'Current Agent';
+
+    const calls = buildCallHistoryItems();
+    if (!calls.length) {
+      return res.status(404).json({ error: 'No call data available for training insights' });
+    }
+
+    const agentCalls = calls.filter((call) => call.csrName === agentName);
+    const peerCalls = calls.filter((call) => call.csrName !== agentName);
+
+    const agentStats = summarizeCalls(agentCalls);
+    const peerStats = summarizeCalls(peerCalls);
+    const overallStats = summarizeCalls(calls);
+    const csrDistribution = buildCsrDistribution(calls);
+    const quartileInfo = determineQuartile(csrDistribution, agentName);
+
+    const trainingContext = {
+      agentName,
+      agentStats,
+      peerStats: {
+        totalCalls: peerStats.totalCalls,
+        conversionRate: peerStats.conversionRate,
+        avgLeadScore: peerStats.avgLeadScore,
+        avgDuration: peerStats.avgDuration,
+      },
+      quartileInfo,
+      dataset: {
+        totalAgents: csrDistribution.length,
+        overallConversion: overallStats.conversionRate,
+        avgLeadScore: overallStats.avgLeadScore,
+      },
+      recentCalls: agentStats.recentCalls,
+    };
+
+    const aiSummary = await generateTrainingNarrative(trainingContext);
+
+    res.json({
+      agentName,
+      agentStats,
+      peerBenchmarks: peerStats,
+      overallStats,
+      quartileInfo,
+      aiSummary,
+      csrDistribution,
+      recentCalls: agentStats.recentCalls,
+    });
+  } catch (error) {
+    console.error('[Training] Insights error:', error);
+    res.status(500).json({ error: 'Failed to generate training insights' });
   }
 });
 

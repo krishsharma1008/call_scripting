@@ -69,6 +69,14 @@ export const Header = () => {
             variant="ghost"
             size="sm"
             className="text-primary-foreground hover:bg-white/10"
+            onClick={() => navigate("/training")}
+          >
+            TRAINING
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-primary-foreground hover:bg-white/10"
           >
             SYSTEM SETTINGS
           </Button>

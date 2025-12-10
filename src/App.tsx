@@ -11,6 +11,7 @@ import ServicePageTabs from "./pages/ServicePageTabs";
 import NotFound from "./pages/NotFound";
 import CallDashboard from "./pages/CallDashboard";
 import CallsHistory from "./pages/CallsHistory";
+import TrainingDashboard from "./pages/TrainingDashboard";
 import { CallProvider } from "./contexts/CallContext";
 import { NudgesTray } from "./components/NudgesTray";
 
@@ -34,6 +35,7 @@ const App = () => {
                     <Route path="/calls-history" element={<CallsHistory />} />
                     <Route path="/dashboard" element={<CallDashboard />} />
                     <Route path="/dashboard/:callId" element={<CallDashboard />} />
+                    <Route path="/training" element={<TrainingDashboard />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                   {/* Global nudges overlay (bottom-right), visible on any page */}
