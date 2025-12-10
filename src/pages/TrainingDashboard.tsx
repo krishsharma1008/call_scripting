@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Header } from '@/components/Header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -13,6 +13,13 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Separator } from '@/components/ui/separator';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Award,
   BookOpenCheck,
@@ -80,28 +87,47 @@ export default function TrainingDashboard() {
   const [insights, setInsights] = useState<TrainingInsights | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'csr' | 'manager'>('csr');
+  const [selectedAgent, setSelectedAgent] = useState('Current Agent');
 
-  const fetchInsights = async () => {
+  const fetchInsights = useCallback(async (agent: string) => {
     setLoading(true);
     setError(null);
     try {
-      const resp = await fetch('http://localhost:3001/api/training/insights?csr=Current%20Agent');
+      const resp = await fetch(
+        `http://localhost:3001/api/training/insights?csr=${encodeURIComponent(agent)}`
+      );
       if (!resp.ok) {
         throw new Error('Unable to load training insights');
       }
       const data: TrainingInsights = await resp.json();
       setInsights(data);
+      setSelectedAgent(data.agentName || agent);
     } catch (err) {
       console.error('[Training] Failed to load insights', err);
       setError('Unable to load training insights. Please try again.');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchInsights();
-  }, []);
+    fetchInsights(selectedAgent);
+  }, [selectedAgent, fetchInsights]);
+
+  const handleViewModeChange = (value: string) => {
+    if (value === 'csr' || value === 'manager') {
+      setViewMode(value);
+    }
+  };
+
+  const handleAgentChange = (value: string) => {
+    setSelectedAgent(value);
+  };
+
+  const handleRetry = () => {
+    fetchInsights(selectedAgent);
+  };
 
   const formatPercentage = (value?: number) => {
     if (!Number.isFinite(value)) return '--';
@@ -194,6 +220,18 @@ export default function TrainingDashboard() {
       ? insights.recentCalls
       : insights?.agentStats?.recentCalls ?? [];
 
+  const availableAgents = useMemo(() => {
+    if (!insights) return ['Current Agent'];
+    const names = insights.csrDistribution.map((entry) => entry.name);
+    if (!names.includes('Current Agent')) {
+      names.unshift('Current Agent');
+    }
+    return Array.from(new Set(names));
+  }, [insights]);
+
+  const showManagerSections = viewMode === 'manager';
+  const showCsrSections = viewMode === 'csr';
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
@@ -224,7 +262,7 @@ export default function TrainingDashboard() {
               <p className="text-muted-foreground text-sm">
                 {error || 'Something went wrong while fetching your training dashboard.'}
               </p>
-              <Button onClick={fetchInsights} variant="default" className="w-full">
+              <Button onClick={handleRetry} variant="default" className="w-full">
                 Retry
               </Button>
             </CardContent>
@@ -248,10 +286,71 @@ export default function TrainingDashboard() {
     agentStats.sentimentBreakdown.neutral +
     agentStats.sentimentBreakdown.negative || 1;
 
+  const nextQuartileLabel =
+    quartileInfo.rank && quartileInfo.rank > 1
+      ? `Target Q${quartileInfo.rank - 1} to move up`
+      : 'Sustain your elite performance';
+
+  const peerInsights: string[] = [];
+  if (Number.isFinite(comparison.conversionDelta) && comparison.conversionDelta < 0) {
+    peerInsights.push(
+      `Top agents convert ${(peerBenchmarks.conversionRate - agentStats.conversionRate).toFixed(1)}% more conversations. Double down on closing techniques earlier in the call.`
+    );
+  }
+  if (Number.isFinite(comparison.leadScoreDelta) && comparison.leadScoreDelta < 0) {
+    peerInsights.push(
+      `Average lead scores trail the benchmark by ${Math.abs(comparison.leadScoreDelta).toFixed(
+        1
+      )} pts. Probe for urgency and budget clues sooner.`
+    );
+  }
+  if (Number.isFinite(comparison.durationDelta) && comparison.durationDelta > 0) {
+    peerInsights.push(
+      `Calls run ${comparison.durationDelta.toFixed(
+        0
+      )}s longer than peers. Streamline qualification to stay concise.`
+    );
+  }
+  if (!peerInsights.length) {
+    peerInsights.push('You are tracking with team averages. Maintain momentum and reinforce best practices.');
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
       <div className="max-w-7xl mx-auto p-6 space-y-6 pb-16">
+        <Card>
+          <CardContent className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between p-4">
+            <div className="flex flex-col gap-2">
+              <span className="text-xs uppercase text-muted-foreground">Viewing as</span>
+              <Select value={viewMode} onValueChange={handleViewModeChange}>
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="csr">CSR Agent</SelectItem>
+                  <SelectItem value="manager">Manager / Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <span className="text-xs uppercase text-muted-foreground">CSR profile</span>
+              <Select value={selectedAgent} onValueChange={handleAgentChange}>
+                <SelectTrigger className="w-56">
+                  <SelectValue placeholder="Select CSR" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableAgents.map((agent) => (
+                    <SelectItem key={agent} value={agent}>
+                      {agent}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card className="relative overflow-hidden border-none text-white shadow-lg">
           <div className="absolute inset-0 bg-gradient-to-r from-[#1a0000] via-[#8b1e00] to-[#ff5e00]" />
           <CardContent className="relative p-6 md:p-8">
@@ -418,71 +517,101 @@ export default function TrainingDashboard() {
           </Card>
         </div>
 
-        <Card>
-          <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div>
-              <CardTitle>Quartile placement</CardTitle>
-              <p className="text-muted-foreground text-sm">
-                Where every CSR stacks up by conversion rate
-              </p>
-            </div>
-            <Badge variant="outline" className="gap-1">
-              <Users className="h-3.5 w-3.5" />
-              {sortedDistribution.length} agents tracked
-            </Badge>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            {quartileBuckets.length === 0 ? (
-              <p className="text-muted-foreground text-sm">
-                Need more historical calls to unlock quartile placement visuals.
-              </p>
-            ) : (
-              quartileBuckets.map((bucket, bucketIdx) => (
-                <div
-                  key={bucket.label}
-                  className={`rounded-xl border p-4 space-y-3 ${
-                    bucketIdx === (quartileInfo.rank ? quartileInfo.rank - 1 : -1)
-                      ? 'bg-primary/5 border-primary/40'
-                      : ''
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-semibold">{bucket.label}</p>
-                      <p className="text-xs text-muted-foreground">{bucket.description}</p>
+        {showManagerSections ? (
+          <Card>
+            <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <CardTitle>Quartile placement</CardTitle>
+                <p className="text-muted-foreground text-sm">
+                  Where every CSR stacks up by conversion rate
+                </p>
+              </div>
+              <Badge variant="outline" className="gap-1">
+                <Users className="h-3.5 w-3.5" />
+                {sortedDistribution.length} agents tracked
+              </Badge>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+              {quartileBuckets.length === 0 ? (
+                <p className="text-muted-foreground text-sm">
+                  Need more historical calls to unlock quartile placement visuals.
+                </p>
+              ) : (
+                quartileBuckets.map((bucket, bucketIdx) => (
+                  <div
+                    key={bucket.label}
+                    className={`rounded-xl border p-4 space-y-3 ${
+                      bucketIdx === (quartileInfo.rank ? quartileInfo.rank - 1 : -1)
+                        ? 'bg-primary/5 border-primary/40'
+                        : ''
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold">{bucket.label}</p>
+                        <p className="text-xs text-muted-foreground">{bucket.description}</p>
+                      </div>
+                      <Badge variant="secondary">{bucket.agents.length}</Badge>
                     </div>
-                    <Badge variant="secondary">{bucket.agents.length}</Badge>
-                  </div>
-                  <div className="space-y-2">
-                    {bucket.agents.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">No agents yet</p>
-                    ) : (
-                      bucket.agents.map((agent) => {
-                        const isCurrent = agent.name === agentName;
-                        return (
-                          <div
-                            key={`${bucket.label}-${agent.name}`}
-                            className={`flex items-center justify-between rounded-lg border px-3 py-2 ${
-                              isCurrent ? 'border-primary bg-primary/10' : 'border-border'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2 text-sm">
-                              {isCurrent && <Sparkles className="h-3.5 w-3.5 text-primary" />}
-                              <span className="font-medium">{agent.name}</span>
+                    <div className="space-y-2">
+                      {bucket.agents.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">No agents yet</p>
+                      ) : (
+                        bucket.agents.map((agent) => {
+                          const isCurrent = agent.name === agentName;
+                          return (
+                            <div
+                              key={`${bucket.label}-${agent.name}`}
+                              className={`flex items-center justify-between rounded-lg border px-3 py-2 ${
+                                isCurrent ? 'border-primary bg-primary/10' : 'border-border'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 text-sm">
+                                {isCurrent && <Sparkles className="h-3.5 w-3.5 text-primary" />}
+                                <span className="font-medium">{agent.name}</span>
+                              </div>
+                              <span className="text-xs text-muted-foreground">
+                                {agent.conversionRate.toFixed(1)}%
+                              </span>
                             </div>
-                            <span className="text-xs text-muted-foreground">
-                              {agent.conversionRate.toFixed(1)}%
-                            </span>
-                          </div>
-                        );
-                      })
-                    )}
+                          );
+                        })
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardHeader>
+              <CardTitle>Your quartile journey</CardTitle>
+              <p className="text-muted-foreground text-sm">
+                {nextQuartileLabel}
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-lg border bg-muted/40 p-4">
+                <p className="text-sm text-muted-foreground">
+                  You currently sit in <span className="font-semibold">{quartileInfo.label}</span>. Focus on
+                  the areas below to climb the leaderboard.
+                </p>
+              </div>
+              <div>
+                <p className="text-sm font-semibold mb-2">What top quartile reps do differently</p>
+                {renderList(peerInsights, 'Stay consistent with the playbook to remain competitive.')}
+              </div>
+              <div>
+                <p className="text-sm font-semibold mb-2">Action ideas</p>
+                {renderList(
+                  aiSummary.actionPlan.map((plan) => `${plan.title}: ${plan.detail}`),
+                  'Complete a few more calls to unlock tailored actions.'
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card>
