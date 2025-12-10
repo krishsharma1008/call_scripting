@@ -147,10 +147,47 @@ export default function TrainingDashboard() {
     }
   }, [insights]);
 
-  const distribution = useMemo(
-    () => insights?.csrDistribution.slice(0, 5) ?? [],
+  const sortedDistribution = useMemo(
+    () => (insights ? [...insights.csrDistribution].sort((a, b) => b.conversionRate - a.conversionRate) : []),
     [insights]
   );
+
+  const quartileBuckets = useMemo(() => {
+    if (!sortedDistribution.length || !insights) {
+      return [];
+    }
+
+    const total = sortedDistribution.length;
+    const labels = ['Top 25%', 'Upper-middle', 'Lower-middle', 'Bottom 25%'];
+    const descriptions = [
+      'Elite performers',
+      'Above average',
+      'Developing consistency',
+      'Needs coaching focus',
+    ];
+
+    return sortedDistribution.reduce<Array<{
+      label: string;
+      description: string;
+      agents: DistributionEntry[];
+    }>>((buckets, agent, index) => {
+      const quartileIndex = Math.min(3, Math.floor(((index + 1) / total) * 4) - 1);
+      const safeIndex = quartileIndex < 0 ? 0 : quartileIndex;
+      if (!buckets[safeIndex]) {
+        buckets[safeIndex] = {
+          label: labels[safeIndex],
+          description: descriptions[safeIndex],
+          agents: [],
+        };
+      }
+      buckets[safeIndex].agents.push(agent);
+      return buckets;
+    }, Array.from({ length: 4 }, (_, i) => ({
+      label: labels[i],
+      description: descriptions[i],
+      agents: [],
+    })));
+  }, [sortedDistribution, insights]);
 
   const recentCalls =
     insights?.recentCalls?.length
@@ -317,13 +354,13 @@ export default function TrainingDashboard() {
               </Badge>
             </CardHeader>
             <CardContent className="space-y-6">
-              {distribution.length === 0 ? (
+              {sortedDistribution.slice(0, 5).length === 0 ? (
                 <p className="text-muted-foreground text-sm">
                   Not enough peer data yet. Complete more calls to unlock team positioning.
                 </p>
               ) : (
                 <div className="space-y-4">
-                  {distribution.map((entry, idx) => {
+                  {sortedDistribution.slice(0, 5).map((entry) => {
                     const isAgent = entry.name === agentName;
                     return (
                       <div key={entry.name} className="space-y-2">
@@ -380,6 +417,72 @@ export default function TrainingDashboard() {
             </CardContent>
           </Card>
         </div>
+
+        <Card>
+          <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <CardTitle>Quartile placement</CardTitle>
+              <p className="text-muted-foreground text-sm">
+                Where every CSR stacks up by conversion rate
+              </p>
+            </div>
+            <Badge variant="outline" className="gap-1">
+              <Users className="h-3.5 w-3.5" />
+              {sortedDistribution.length} agents tracked
+            </Badge>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            {quartileBuckets.length === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                Need more historical calls to unlock quartile placement visuals.
+              </p>
+            ) : (
+              quartileBuckets.map((bucket, bucketIdx) => (
+                <div
+                  key={bucket.label}
+                  className={`rounded-xl border p-4 space-y-3 ${
+                    bucketIdx === (quartileInfo.rank ? quartileInfo.rank - 1 : -1)
+                      ? 'bg-primary/5 border-primary/40'
+                      : ''
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold">{bucket.label}</p>
+                      <p className="text-xs text-muted-foreground">{bucket.description}</p>
+                    </div>
+                    <Badge variant="secondary">{bucket.agents.length}</Badge>
+                  </div>
+                  <div className="space-y-2">
+                    {bucket.agents.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">No agents yet</p>
+                    ) : (
+                      bucket.agents.map((agent) => {
+                        const isCurrent = agent.name === agentName;
+                        return (
+                          <div
+                            key={`${bucket.label}-${agent.name}`}
+                            className={`flex items-center justify-between rounded-lg border px-3 py-2 ${
+                              isCurrent ? 'border-primary bg-primary/10' : 'border-border'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 text-sm">
+                              {isCurrent && <Sparkles className="h-3.5 w-3.5 text-primary" />}
+                              <span className="font-medium">{agent.name}</span>
+                            </div>
+                            <span className="text-xs text-muted-foreground">
+                              {agent.conversionRate.toFixed(1)}%
+                            </span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card>
